@@ -10,7 +10,7 @@ import pandas as pd
 
 
 def generate_graph_seq2seq_io_data(
-        df, x_offsets, y_offsets, add_time_in_day=True, add_day_in_week=False, scaler=None
+        df, x_offsets, y_offsets, add_time_in_day=True, add_day_in_week=False, add_month_in_year=False, scaler=None
 ):
     """
     Generate samples from
@@ -24,7 +24,7 @@ def generate_graph_seq2seq_io_data(
     # x: (epoch_size, input_length, num_nodes, input_dim)
     # y: (epoch_size, output_length, num_nodes, output_dim)
     """
-
+    print(df.shape)
     num_samples, num_nodes = df.shape
     data = np.expand_dims(df.values, axis=-1)
     data_list = [data]
@@ -36,6 +36,11 @@ def generate_graph_seq2seq_io_data(
         day_in_week = np.zeros(shape=(num_samples, num_nodes, 7))
         day_in_week[np.arange(num_samples), :, df.index.dayofweek] = 1
         data_list.append(day_in_week)
+    if add_month_in_year:
+        month_in_year = np.zeros(shape=(num_samples, num_nodes, 12))
+        month = df.index.month
+        month_in_year[np.arange(num_samples), :, month - 1] = 1
+        data_list.append(month_in_year)
 
     data = np.concatenate(data_list, axis=-1)
     # epoch_len = num_samples + min(x_offsets) - max(y_offsets)
@@ -55,21 +60,33 @@ def generate_graph_seq2seq_io_data(
 
 def generate_train_val_test(args):
     df = pd.read_hdf(args.traffic_df_filename)
-    # 0 is the latest observed sample.
-    x_offsets = np.sort(
-        # np.concatenate(([-week_size + 1, -day_size + 1], np.arange(-11, 1, 1)))
-        np.concatenate((np.arange(-11, 1, 1),))
-    )
-    # Predict the next one hour
-    y_offsets = np.sort(np.arange(1, 13, 1))
+    df.index = pd.to_datetime(df.index, format='%Y%m')
+
+
+    # # 0 is the latest observed sample.
+    # x_offsets = np.sort(
+    #     # np.concatenate(([-week_size + 1, -day_size + 1], np.arange(-11, 1, 1)))
+    #     np.concatenate((np.arange(-11, 1, 1),))
+    # )
+    # # Predict the next one hour
+    # y_offsets = np.sort(np.arange(1, 13, 1))
+    
+    # x_offsets: 使用过去的月份数作为输入数据
+    x_offsets = np.sort(np.arange(-12, 0, 1))
+    # y_offsets: 预测未来的月份数作为输出数据
+    y_offsets = np.array([1])
+
+    print(x_offsets, y_offsets)
+
     # x: (num_samples, input_length, num_nodes, input_dim)
     # y: (num_samples, output_length, num_nodes, output_dim)
     x, y = generate_graph_seq2seq_io_data(
         df,
         x_offsets=x_offsets,
         y_offsets=y_offsets,
-        add_time_in_day=True,
+        add_time_in_day=False,
         add_day_in_week=False,
+        add_month_in_year=True,
     )
 
     print("x shape: ", x.shape, ", y shape: ", y.shape)

@@ -94,6 +94,13 @@ class DCRNNSupervisor:
         checkpoint = torch.load('models/epo%d.tar' % self._epoch_num, map_location='cpu')
         self.dcrnn_model.load_state_dict(checkpoint['model_state_dict'])
         self._logger.info("Loaded model at {}".format(self._epoch_num))
+    
+    def load_model_inference(self, epoch_num):
+        self._setup_graph()
+        assert os.path.exists('/Users/jade_mayer/projects/geospatial/冰川流速预测/code/DCRNN_PyTorch/models/epo%d.tar' % epoch_num), 'Weights at epoch %d not found' % epoch_num
+        checkpoint = torch.load('/Users/jade_mayer/projects/geospatial/冰川流速预测/code/DCRNN_PyTorch/models/epo%d.tar' % epoch_num, map_location='cpu')
+        self.dcrnn_model.load_state_dict(checkpoint['model_state_dict'])
+        self._logger.info("Loaded model at {}".format(epoch_num))
 
     def _setup_graph(self):
         with torch.no_grad():
@@ -109,6 +116,34 @@ class DCRNNSupervisor:
     def train(self, **kwargs):
         kwargs.update(self._train_kwargs)
         return self._train(**kwargs)
+
+    def inference_testset(self,  dataset='val'):
+        """
+        test set推理
+        :return: 
+        """
+        with torch.no_grad():
+            self.dcrnn_model = self.dcrnn_model.eval()
+
+            test_iterator = self._data['{}_loader'.format(dataset)].get_iterator()
+
+            losses = []
+            y_truths = []
+            y_preds = []
+
+            import pdb; pdb.set_trace()
+
+            for _, (x, y) in enumerate(test_iterator):
+                x, y = self._prepare_data(x, y)
+
+                output = self.dcrnn_model(x)
+                loss = self._compute_loss(y, output)
+                losses.append(loss.item())
+
+                y_truths.append(y.cpu())
+                y_preds.append(output.cpu())
+
+        
 
     def evaluate(self, dataset='val', batches_seen=0):
         """
@@ -273,6 +308,7 @@ class DCRNNSupervisor:
                  y: shape (horizon, batch_size, num_sensor * output_dim)
         """
         batch_size = x.size(1)
+        # import pdb; pdb.set_trace()
         x = x.view(self.seq_len, batch_size, self.num_nodes * self.input_dim)
         y = y[..., :self.output_dim].view(self.horizon, batch_size,
                                           self.num_nodes * self.output_dim)
