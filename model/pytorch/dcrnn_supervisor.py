@@ -22,8 +22,13 @@ class DCRNNSupervisor:
         self.max_grad_norm = self._train_kwargs.get('max_grad_norm', 1.)
 
         # logging.
-        self._log_dir = self._get_log_dir(kwargs)
-        self._writer = SummaryWriter('runs/' + self._log_dir)
+        self._run_id = self._get_run_id(kwargs)
+        # self._log_dir = self._get_log_dir(kwargs)
+        # self._writer = SummaryWriter('runs/' + self._log_dir)
+        self.checkpoint_dir = 'logs_and_weights/' + self._run_id 
+        self._log_dir = self.checkpoint_dir
+        self._writer = SummaryWriter(self.checkpoint_dir)
+        # self._log_dir = self.checkpoint_dir
 
         log_level = self._kwargs.get('log_level', 'INFO')
         self._logger = utils.get_logger(self._log_dir, __name__, 'info.log', level=log_level)
@@ -76,22 +81,45 @@ class DCRNNSupervisor:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         return log_dir
+    
+    @staticmethod
+    def _get_run_id(kwargs):
+        batch_size = kwargs['data'].get('batch_size')
+        learning_rate = kwargs['train'].get('base_lr')
+        max_diffusion_step = kwargs['model'].get('max_diffusion_step')
+        num_rnn_layers = kwargs['model'].get('num_rnn_layers')
+        rnn_units = kwargs['model'].get('rnn_units')
+        structure = '-'.join(
+            ['%d' % rnn_units for _ in range(num_rnn_layers)])
+        horizon = kwargs['model'].get('horizon')
+        filter_type = kwargs['model'].get('filter_type')
+        filter_type_abbr = 'L'
+        if filter_type == 'random_walk':
+            filter_type_abbr = 'R'
+        elif filter_type == 'dual_random_walk':
+            filter_type_abbr = 'DR'
+        run_id = 'dcrnn_%s_%d_h_%d_%s_lr_%g_bs_%d_%s/' % (
+            filter_type_abbr, max_diffusion_step, horizon,
+            structure, learning_rate, batch_size,
+            time.strftime('%m%d%H%M%S'))
+        return run_id
 
     def save_model(self, epoch):
-        if not os.path.exists('models/'):
-            os.makedirs('models/')
+        
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
 
         config = dict(self._kwargs)
         config['model_state_dict'] = self.dcrnn_model.state_dict()
         config['epoch'] = epoch
-        torch.save(config, 'models/epo%d.tar' % epoch)
+        torch.save(config, os.path.join(self.checkpoint_dir, 'epo%d.tar' % epoch))
         self._logger.info("Saved model at {}".format(epoch))
-        return 'models/epo%d.tar' % epoch
+        return os.path.join(self.checkpoint_dir, 'epo%d.tar' % epoch)
 
     def load_model(self):
         self._setup_graph()
-        assert os.path.exists('models/epo%d.tar' % self._epoch_num), 'Weights at epoch %d not found' % self._epoch_num
-        checkpoint = torch.load('models/epo%d.tar' % self._epoch_num, map_location='cpu')
+        assert os.path.exists(os.path.join(self.checkpoint_dir, 'epo%d.tar' % self._epoch_num)), 'Weights at epoch %d not found' % self._epoch_num
+        checkpoint = torch.load(os.path.join(self.checkpoint_dir, 'epo%d.tar' % self._epoch_num), map_location='cpu')
         self.dcrnn_model.load_state_dict(checkpoint['model_state_dict'])
         self._logger.info("Loaded model at {}".format(self._epoch_num))
     
@@ -131,7 +159,7 @@ class DCRNNSupervisor:
             y_truths = []
             y_preds = []
 
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
 
             for _, (x, y) in enumerate(test_iterator):
                 x, y = self._prepare_data(x, y)
@@ -188,12 +216,12 @@ class DCRNNSupervisor:
 
     def _train(self, base_lr,
                steps, patience=50, epochs=100, lr_decay_ratio=0.1, log_every=1, save_model=1,
-               test_every_n_epochs=10, epsilon=1e-8, **kwargs):
+               test_every_n_epochs=10, epsilon=1e-8, momentum = 0.9, **kwargs):
         # steps is used in learning rate - will see if need to use it?
         min_val_loss = float('inf')
         wait = 0
         optimizer = torch.optim.Adam(self.dcrnn_model.parameters(), lr=base_lr, eps=epsilon)
-
+        
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=steps,
                                                             gamma=lr_decay_ratio)
 
@@ -215,6 +243,7 @@ class DCRNNSupervisor:
             start_time = time.time()
 
             for _, (x, y) in enumerate(train_iterator):
+                # import pdb; pdb.set_trace()
                 optimizer.zero_grad()
 
                 x, y = self._prepare_data(x, y)
@@ -224,6 +253,7 @@ class DCRNNSupervisor:
                 if batches_seen == 0:
                     # this is a workaround to accommodate dynamically registered parameters in DCGRUCell
                     optimizer = torch.optim.Adam(self.dcrnn_model.parameters(), lr=base_lr, eps=epsilon)
+                    # optimizer = torch.optim.SGD(self.dcrnn_model.parameters(), lr=base_lr, momentum=momentum)
 
                 loss = self._compute_loss(y, output)
 
@@ -232,6 +262,7 @@ class DCRNNSupervisor:
                 losses.append(loss.item())
 
                 batches_seen += 1
+                # import pdb; pdb.set_trace()
                 loss.backward()
 
                 # gradient clipping - this does it in place
@@ -242,6 +273,7 @@ class DCRNNSupervisor:
             lr_scheduler.step()
             self._logger.info("evaluating now!")
 
+            # 每个epoch在val数据集上计算一次loss
             val_loss, _ = self.evaluate(dataset='val', batches_seen=batches_seen)
 
             end_time = time.time()
@@ -257,6 +289,7 @@ class DCRNNSupervisor:
                                            (end_time - start_time))
                 self._logger.info(message)
 
+            # 每十个epoch在test数据集评估一次loss
             if (epoch_num % test_every_n_epochs) == test_every_n_epochs - 1:
                 test_loss, _ = self.evaluate(dataset='test', batches_seen=batches_seen)
                 message = 'Epoch [{}/{}] ({}) train_mae: {:.4f}, test_mae: {:.4f},  lr: {:.6f}, ' \

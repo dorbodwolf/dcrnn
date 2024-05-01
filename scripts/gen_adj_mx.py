@@ -16,6 +16,7 @@ def get_adjacency_matrix(distance_df, sensor_ids, normalized_k=0.1):
     :param normalized_k: entries that become lower than normalized_k after normalization are set to zero for sparsity.
     :return:
     """
+    
     num_sensors = len(sensor_ids)
     dist_mx = np.zeros((num_sensors, num_sensors), dtype=np.float32)
     dist_mx[:] = np.inf
@@ -30,6 +31,7 @@ def get_adjacency_matrix(distance_df, sensor_ids, normalized_k=0.1):
             continue
         dist_mx[sensor_id_to_ind[row[0]], sensor_id_to_ind[row[1]]] = row[2]
 
+    
     # Calculates the standard deviation as theta.
     distances = dist_mx[~np.isinf(dist_mx)].flatten()
     std = distances.std()
@@ -39,6 +41,7 @@ def get_adjacency_matrix(distance_df, sensor_ids, normalized_k=0.1):
 
     # Sets entries that lower than a threshold, i.e., k, to zero for sparsity.
     adj_mx[adj_mx < normalized_k] = 0
+    # import pdb; pdb.set_trace()
     return sensor_ids, sensor_id_to_ind, adj_mx
 
 
@@ -56,7 +59,9 @@ if __name__ == '__main__':
 
     with open(args.sensor_ids_filename) as f:
         sensor_ids = f.read().strip().split(',')
-    distance_df = pd.read_csv(args.distances_filename, dtype={'from': 'str', 'to': 'str'})
+    # import pdb; pdb.set_trace()
+    distance_df = pd.read_csv(args.distances_filename, dtype={'from': 'str', 'to': 'str'}, usecols=['distance', 'from', 'to'])
+
     _, sensor_id_to_ind, adj_mx = get_adjacency_matrix(distance_df, sensor_ids)
     # Save to pickle file.
     with open(args.output_pkl_filename, 'wb') as f:

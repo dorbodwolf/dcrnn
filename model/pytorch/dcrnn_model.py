@@ -44,6 +44,7 @@ class EncoderModel(nn.Module, Seq2SeqAttrs):
                  hidden_state # shape (num_layers, batch_size, self.hidden_state_size)
                  (lower indices mean lower layers)
         """
+        
         batch_size, _ = inputs.size()
         if hidden_state is None:
             hidden_state = torch.zeros((self.num_rnn_layers, batch_size, self.hidden_state_size),

@@ -86,7 +86,7 @@ def generate_train_val_test(args):
         y_offsets=y_offsets,
         add_time_in_day=False,
         add_day_in_week=False,
-        add_month_in_year=True,
+        add_month_in_year=False, # 是否加入所在月份的特征
     )
 
     print("x shape: ", x.shape, ", y shape: ", y.shape)

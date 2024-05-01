@@ -113,6 +113,7 @@ def calculate_reverse_random_walk_matrix(adj_mx):
 
 
 def calculate_scaled_laplacian(adj_mx, lambda_max=2, undirected=True):
+    # import pdb; pdb.set_trace()
     if undirected:
         adj_mx = np.maximum.reduce([adj_mx, adj_mx.T])
     L = calculate_normalized_laplacian(adj_mx)
@@ -195,11 +196,13 @@ def load_dataset(dataset_dir, batch_size, test_batch_size=None, **kwargs):
 
 
 def load_graph_data(pkl_filename):
+    
     sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)
     return sensor_ids, sensor_id_to_ind, adj_mx
 
 
 def load_pickle(pickle_file):
+    # import pdb; pdb.set_trace()
     try:
         with open(pickle_file, 'rb') as f:
             pickle_data = pickle.load(f)

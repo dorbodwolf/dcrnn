@@ -56,6 +56,7 @@ class DCGRUCell(torch.nn.Module):
         self._supports = []
         self._use_gc_for_ru = use_gc_for_ru
         supports = []
+        
         if filter_type == "laplacian":
             supports.append(utils.calculate_scaled_laplacian(adj_mx, lambda_max=None))
         elif filter_type == "random_walk":
@@ -88,22 +89,26 @@ class DCGRUCell(torch.nn.Module):
         :return
         - Output: A `2-D` tensor with shape `(B, num_nodes * rnn_units)`.
         """
+        
         output_size = 2 * self._num_units
         if self._use_gc_for_ru:
             fn = self._gconv
         else:
             fn = self._fc
+        # import pdb; pdb.set_trace()
         value = torch.sigmoid(fn(inputs, hx, output_size, bias_start=1.0))
+        # value = torch.relu(fn(inputs, hx, output_size, bias_start=1.0))
+
         value = torch.reshape(value, (-1, self._num_nodes, output_size))
         r, u = torch.split(tensor=value, split_size_or_sections=self._num_units, dim=-1)
         r = torch.reshape(r, (-1, self._num_nodes * self._num_units))
         u = torch.reshape(u, (-1, self._num_nodes * self._num_units))
 
-        c = self._gconv(inputs, r * hx, self._num_units)
+        c_ = self._gconv(inputs, r * hx, self._num_units)
         if self._activation is not None:
-            c = self._activation(c)
+            c = self._activation(c_)
 
-        new_state = u * hx + (1.0 - u) * c
+        new_state = u * hx + (1.0 - u) * c_
         return new_state
 
     @staticmethod
@@ -125,6 +130,7 @@ class DCGRUCell(torch.nn.Module):
 
     def _gconv(self, inputs, state, output_size, bias_start=0.0):
         # Reshape input and state to (batch_size, num_nodes, input_dim/state_dim)
+        
         batch_size = inputs.shape[0]
         inputs = torch.reshape(inputs, (batch_size, self._num_nodes, -1))
         state = torch.reshape(state, (batch_size, self._num_nodes, -1))
@@ -147,7 +153,7 @@ class DCGRUCell(torch.nn.Module):
                     x2 = 2 * torch.sparse.mm(support, x1) - x0
                     x = self._concat(x, x2)
                     x1, x0 = x2, x1
-
+        
         num_matrices = len(self._supports) * self._max_diffusion_step + 1  # Adds for x itself.
         x = torch.reshape(x, shape=[num_matrices, self._num_nodes, input_size, batch_size])
         x = x.permute(3, 1, 2, 0)  # (batch_size, num_nodes, input_size, order)
