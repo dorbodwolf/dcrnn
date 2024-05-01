@@ -22,10 +22,10 @@ def main(args):
 
         supervisor = DCRNNSupervisor(adj_mx=adj_mx, **supervisor_config)
 
-        print(args.epoch)
-        supervisor.load_model_inference(args.epoch)
+        print('loading model at checkpoint ', args.epoch)
+        supervisor.load_model_inference(args.log_dir, args.epoch)
 
-        supervisor.inference_testset()
+        supervisor.test()
 
 
 if __name__ == '__main__':
@@ -33,6 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('--config_filename', default=None, type=str,
                         help='Configuration filename for restoring the model.')
     parser.add_argument('--use_cpu_only', default=False, type=bool, help='Set to true to only use cpu.')
+    parser.add_argument('--log_dir', default=None, type=str, help='dir to load weights')
     parser.add_argument('--epoch', default=0, type=int, help='Set to true to only use cpu.')
     args = parser.parse_args()
     main(args)

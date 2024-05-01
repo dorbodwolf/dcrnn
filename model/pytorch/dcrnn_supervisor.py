@@ -11,6 +11,11 @@ from model.pytorch.loss import masked_mae_loss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+import random
+
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+
 
 class DCRNNSupervisor:
     def __init__(self, adj_mx, **kwargs):
@@ -123,10 +128,10 @@ class DCRNNSupervisor:
         self.dcrnn_model.load_state_dict(checkpoint['model_state_dict'])
         self._logger.info("Loaded model at {}".format(self._epoch_num))
     
-    def load_model_inference(self, epoch_num):
+    def load_model_inference(self, checkpoint_dir, epoch_num):
         self._setup_graph()
-        assert os.path.exists('/Users/jade_mayer/projects/geospatial/冰川流速预测/code/DCRNN_PyTorch/models/epo%d.tar' % epoch_num), 'Weights at epoch %d not found' % epoch_num
-        checkpoint = torch.load('/Users/jade_mayer/projects/geospatial/冰川流速预测/code/DCRNN_PyTorch/models/epo%d.tar' % epoch_num, map_location='cpu')
+        assert os.path.exists(os.path.join(checkpoint_dir, 'epo%d.tar' % epoch_num)), 'Weights at epoch %d not found' % epoch_num
+        checkpoint = torch.load(os.path.join(checkpoint_dir, 'epo%d.tar' % epoch_num), map_location='cpu')
         self.dcrnn_model.load_state_dict(checkpoint['model_state_dict'])
         self._logger.info("Loaded model at {}".format(epoch_num))
 
@@ -145,7 +150,44 @@ class DCRNNSupervisor:
         kwargs.update(self._train_kwargs)
         return self._train(**kwargs)
 
-    def inference_testset(self,  dataset='val'):
+    def sample_to_plot(self, gt, pred):
+        """
+        从测试集随机采样一个节点来可视化其真值和预测值的时间序列图
+        """
+        # import pdb; pdb.set_trace()
+
+        # 指定字体文件路径
+        font_path = '/System/Library/Fonts/PingFang.ttc'
+
+        # 创建字体属性对象
+        prop = fm.FontProperties(fname=font_path)
+
+        n = gt[0].shape[2] # 452 = 452个节点
+        rand_n = random.randint(0, n-1)
+        gt_to_plot = []
+        pred_to_plot = []
+        for slot in gt:
+            gt_to_plot.append(float(slot[:,:, rand_n]))
+        for slot in pred:
+            pred_to_plot.append(float(slot[:,:, rand_n]))
+
+        # 使用plt.subplots创建一个figure和一个axes对象
+        fig, ax = plt.subplots()
+
+        # 使用plot函数绘制两个列表
+        ax.plot(gt_to_plot, label='observation')
+        ax.plot(pred_to_plot, label='prediction')
+
+        ax.set_xlabel('时间', fontproperties=prop)
+        ax.set_ylabel('冰川移动速度（归一化值）', fontproperties=prop)
+        # 添加图例
+        ax.legend()
+
+        # 显示图形
+        plt.show()
+
+
+    def test(self,  dataset='test'):
         """
         test set推理
         :return: 
@@ -159,9 +201,7 @@ class DCRNNSupervisor:
             y_truths = []
             y_preds = []
 
-            # import pdb; pdb.set_trace()
-
-            for _, (x, y) in enumerate(test_iterator):
+            for i, (x, y) in enumerate(test_iterator):
                 x, y = self._prepare_data(x, y)
 
                 output = self.dcrnn_model(x)
@@ -170,8 +210,13 @@ class DCRNNSupervisor:
 
                 y_truths.append(y.cpu())
                 y_preds.append(output.cpu())
-
+            
         
+            self.sample_to_plot(y_truths, y_preds)
+
+            # import pdb; pdb.set_trace()
+            # print('losses: ', losses)
+
 
     def evaluate(self, dataset='val', batches_seen=0):
         """
