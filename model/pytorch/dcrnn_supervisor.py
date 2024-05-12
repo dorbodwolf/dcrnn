@@ -2,6 +2,7 @@ import os
 import time
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -16,6 +17,10 @@ import random
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 
+import os
+from osgeo import gdal
+import subprocess
+import csv
 
 class DCRNNSupervisor:
     def __init__(self, adj_mx, **kwargs):
@@ -185,6 +190,7 @@ class DCRNNSupervisor:
 
         # 显示图形
         plt.show()
+    
 
 
     def test(self,  dataset='test'):
@@ -214,8 +220,89 @@ class DCRNNSupervisor:
         
             self.sample_to_plot(y_truths, y_preds)
 
-            # import pdb; pdb.set_trace()
-            # print('losses: ', losses)
+    def read_reftif(self, reftif):
+        dataset = gdal.Open(reftif)
+        assert dataset.RasterXSize == 80 and dataset.RasterYSize == 113, print("栅格数据集大小:", dataset.RasterXSize, "x", dataset.RasterYSize)
+        # 读取栅格数据
+        band = dataset.GetRasterBand(1)  # 获取第一个波段
+        band_data = band.ReadAsArray()  # 读取波段数据到数组中
+        
+        gt = dataset.GetGeoTransform()
+        proj = dataset.GetProjection()
+        xsize = dataset.RasterXSize
+        ysize = dataset.RasterYSize
+
+        return band_data, gt, proj, xsize, ysize
+
+    def write_predtif(self, data_array,output_tif, gt, proj, xsize, ysize, datatype=gdal.GDT_Float32):
+        driver = gdal.GetDriverByName("GTiff")
+        out_dataset = driver.Create(output_tif, xsize, ysize, len(data_array), datatype)
+        out_dataset.SetGeoTransform(gt)
+        out_dataset.SetProjection(proj)
+        # for band_index, band_data in enumerate(data_array, start=1):
+        out_band = out_dataset.GetRasterBand(1)
+        out_band.WriteArray(data_array)
+        out_band.FlushCache()
+        out_dataset = None  # 关闭数据集
+
+
+    def mapping(self, metainfo, indexfile, reftif, write_dir, dataset_type='test'):
+        """
+        test set推理绘制地图
+        :return: 
+        """
+        band_data, gt, proj, xsize, ysize = self.read_reftif(reftif)
+
+        with torch.no_grad():
+            self.dcrnn_model = self.dcrnn_model.eval()
+
+            test_iterator = self._data['{}_loader'.format(dataset_type)].get_iterator()
+
+            losses = []
+            y_truths = []
+            y_preds = []
+
+            for i, (x, y) in enumerate(test_iterator):
+                x, y = self._prepare_data(x, y)
+                # import pdb; pdb.set_trace()
+                output = self.dcrnn_model(x)
+                loss = self._compute_loss(y, output)
+                losses.append(loss.item())
+
+                y_truths.append(y.cpu())
+                y_preds.append(output.cpu())
+            
+            metadata_df = pd.read_csv(metainfo)
+            
+            cols = metadata_df.columns.to_list()
+            ids = cols[1:]
+            dates = metadata_df[cols[0]].to_list()[-len(y_truths):]
+
+            scaler = self.standard_scaler
+
+            xy_index = pd.read_csv(indexfile)
+            assert len(ids) == len(y_truths[0][0,0,::])  # meta信息中的id和预测数据一一对应
+            for i, pred in enumerate(y_preds):
+                # 处理单个时相
+                output_data = np.full_like(band_data, -999.0, dtype='float') # 基于参考tif构建输出数组
+                date = dates[i]
+                pixels = pred[0,0,:].numpy()
+                pixels_recovery = scaler.inverse_transform(pixels)
+                for j, pixel in enumerate(pixels_recovery):
+                    idx = ids[j]
+                    xy = xy_index[xy_index['index']==int(idx)]
+                    row = int(xy['row'])
+                    col = int(xy['col'])
+                    output_data[row, col] = pixel
+                # import pdb; pdb.set_trace()
+                output_tif = os.path.join(write_dir,str(date)+'.tif')
+                try:
+                    self.write_predtif(output_data, output_tif, gt, proj, xsize, ysize)
+                    print(f'success write {output_tif}')
+                except Exception as e:
+                    print(f'{e} , failed writing {output_tif}')
+                
+                                
 
 
     def evaluate(self, dataset='val', batches_seen=0):
